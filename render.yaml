@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: ai-core-tracker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python portfolio_compare.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.16
