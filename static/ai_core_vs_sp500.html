@@ -1,0 +1,264 @@
+<!-- קובץ HTML: ai_core_vs_sp500.html -->
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Core Portfolio Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+      color: #ffffff; min-height: 100vh;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .header {
+      text-align: center; margin-bottom: 40px; padding: 30px 0;
+      background: rgba(255,255,255,0.05); border-radius: 20px;
+      backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1);
+    }
+    .header h1 {
+      font-size: 2.5em; margin-bottom: 10px;
+      background: linear-gradient(45deg, #00d4ff, #5200ff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .performance-cards {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px; margin-bottom: 40px;
+    }
+    .card {
+      background: rgba(255,255,255,0.05); border-radius: 15px; padding: 25px;
+      text-align: center; backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1); transition: 0.3s ease;
+    }
+    .card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 40px rgba(0,212,255,0.2);
+    }
+    .card-title { font-size: 1.1em; color: #a0a0a0; margin-bottom: 10px; }
+    .card-value { font-size: 2.2em; font-weight: bold; margin-bottom: 5px; }
+    .positive { color: #00ff88; }
+    .negative { color: #ff4757; }
+    .neutral { color: #ffa502; }
+    .controls {
+      background: rgba(255,255,255,0.05); border-radius: 15px; padding: 25px;
+      margin-bottom: 30px; backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .date-inputs {
+      display: flex; gap: 15px; align-items: center;
+      flex-wrap: wrap; margin-bottom: 20px;
+    }
+    .date-inputs input {
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px; padding: 10px 15px; color: #ffffff;
+    }
+    .btn {
+      background: linear-gradient(45deg, #00d4ff, #5200ff);
+      border: none; border-radius: 8px; padding: 12px 24px;
+      color: #ffffff; font-weight: bold; cursor: pointer;
+      transition: 0.3s ease; margin: 5px;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(0,212,255,0.3);
+    }
+    .chart-container {
+      background: rgba(255,255,255,0.05); border-radius: 15px;
+      padding: 25px; margin-bottom: 30px; backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1); height: 500px;
+    }
+    .portfolio-details {
+      background: rgba(255,255,255,0.05); border-radius: 15px;
+      padding: 25px; backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1); margin-top: 30px; display: none;
+    }
+    .stocks-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+    }
+    .stock-item {
+      background: rgba(255,255,255,0.05); border-radius: 10px; padding: 15px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .stock-symbol { font-weight: bold; color: #00d4ff; font-size: 1.1em; }
+    .error-message {
+      background: rgba(255,71,87,0.1); border: 1px solid #ff4757;
+      border-radius: 10px; padding: 15px; color: #ff4757;
+      text-align: center; margin: 20px 0; display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🤖 AI Core Portfolio Tracker</h1>
+      <p>מעקב ביצועים חכם מול S&P 500</p>
+    </div>
+
+    <div class="performance-cards">
+      <div class="card"><div class="card-title">📈 S&P 500</div><div class="card-value" id="sp500-return">טוען...</div></div>
+      <div class="card"><div class="card-title">🤖 AI Core</div><div class="card-value" id="aicore-return">טוען...</div></div>
+      <div class="card"><div class="card-title">⚖️ הפרש</div><div class="card-value" id="difference">טוען...</div></div>
+    </div>
+
+    <div class="controls">
+      <h3>🎛️ בקרת תצוגה</h3>
+      <div class="date-inputs">
+        <label>מתאריך:</label><input type="date" id="start-date" min="2025-05-19">
+        <label>עד תאריך:</label><input type="date" id="end-date">
+        <button class="btn" onclick="filterData()">חשב טווח</button>
+        <button class="btn" onclick="resetChart()">איפוס</button>
+      </div>
+    </div>
+
+    <div class="error-message" id="error-message"></div>
+
+    <div class="chart-container">
+      <canvas id="performanceChart"></canvas>
+    </div>
+
+    <button class="btn" onclick="togglePortfolioDetails()" style="display: block; margin: 20px auto;">
+      📊 צפייה ב-AI Core Portfolio
+    </button>
+
+    <div class="portfolio-details" id="portfolio-details">
+      <h3>🎯 הרכב תיק AI Core</h3>
+      <div class="stocks-grid" id="stocks-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    const portfolioWeights = {
+      'AAPL': 2.9413, 'AMZN': 2.9396, 'ARKK': 5.4294, 'ARKQ': 2.4354,
+      'AVAV': 3.4471, 'BOTZ': 2.6206, 'BRK-B': 2.5727, 'BSV': 3.6768,
+      'CIBR': 1.9763, 'CRWD': 2.9413, 'EEM': 5.8821, 'GLD': 3.4459,
+      'GOOGL': 3.9547, 'ICLN': 0.9655, 'LIT': 0.9654, 'LMT': 3.9530,
+      'META': 2.4333, 'MSFT': 5.8797, 'NOC': 3.9059, 'NVDA': 8.8717,
+      'PATH': 3.6562, 'PAVE': 1.1171, 'PLTR': 8.7785, 'QQQ': 3.9065,
+      'SMCI': 1.4707, 'SMH': 1.9759, 'TSLA': 1.9304, 'TSM': 3.9569
+    };
+
+    let chart, allData = [];
+
+    async function loadData() {
+      try {
+        const response = await fetch('/performance_data.csv');
+        const csvText = await response.text();
+        const rows = csvText.trim().split('\\n').slice(1);
+        allData = rows.map(row => {
+          const [date, aiCore, spy] = row.split(',');
+          return { date, aiCore: parseFloat(aiCore), spy: parseFloat(spy) };
+        });
+        drawChart(allData); updatePerformanceCards();
+      } catch (error) {
+        console.error('שגיאה בטעינת נתונים:', error);
+        showError('שגיאה בטעינת נתונים מהשרת');
+      }
+    }
+
+    function drawChart(data) {
+      const ctx = document.getElementById('performanceChart').getContext('2d');
+      if (chart) chart.destroy();
+      const labels = data.map(d => d.date);
+      const aiCoreData = data.map(d => ((d.aiCore / data[0].aiCore - 1) * 100));
+      const spyData = data.map(d => ((d.spy / data[0].spy - 1) * 100));
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'AI Core', data: aiCoreData, borderColor: '#00d4ff', backgroundColor: 'rgba(0, 212, 255, 0.1)', borderWidth: 3, fill: false },
+            { label: 'S&P 500', data: spyData, borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.1)', borderWidth: 3, fill: false }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#ffffff' } } },
+          scales: {
+            x: { ticks: { color: '#a0a0a0' }, grid: { color: 'rgba(160,160,160,0.1)' } },
+            y: {
+              ticks: {
+                color: '#a0a0a0',
+                callback: value => value.toFixed(1) + '%'
+              },
+              grid: { color: 'rgba(160,160,160,0.1)' }
+            }
+          }
+        }
+      });
+    }
+
+    function updatePerformanceCards() {
+      if (allData.length === 0) return;
+      const latest = allData[allData.length - 1];
+      const first = allData[0];
+      const aiReturn = ((latest.aiCore / first.aiCore - 1) * 100);
+      const spyReturn = ((latest.spy / first.spy - 1) * 100);
+      const diff = aiReturn - spyReturn;
+      document.getElementById('sp500-return').innerHTML = formatPercent(spyReturn);
+      document.getElementById('aicore-return').innerHTML = formatPercent(aiReturn);
+      document.getElementById('difference').innerHTML = formatPercent(diff);
+      updateColor(document.getElementById('sp500-return'), spyReturn);
+      updateColor(document.getElementById('aicore-return'), aiReturn);
+      updateColor(document.getElementById('difference'), diff);
+    }
+
+    function formatPercent(value) {
+      return (value >= 0 ? '+' : '') + value.toFixed(2) + '%';
+    }
+
+    function updateColor(element, value) {
+      element.className = 'card-value ' + (value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral');
+    }
+
+    function initPortfolioDetails() {
+      const grid = document.getElementById('stocks-grid');
+      const sorted = Object.entries(portfolioWeights).sort((a, b) => b[1] - a[1]);
+      grid.innerHTML = sorted.map(([symbol, weight]) => `
+        <div class="stock-item">
+          <div class="stock-symbol">${symbol}</div>
+          <div class="stock-weight">${weight.toFixed(2)}%</div>
+        </div>
+      `).join('');
+    }
+
+    function togglePortfolioDetails() {
+      const details = document.getElementById('portfolio-details');
+      details.style.display = details.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function showError(message) {
+      const errorDiv = document.getElementById('error-message');
+      errorDiv.textContent = message;
+      errorDiv.style.display = 'block';
+    }
+
+    function filterData() {
+      const start = document.getElementById('start-date').value;
+      const end = document.getElementById('end-date').value;
+      if (!start || !end) return showError('אנא הזן תאריכי התחלה וסיום');
+      const filtered = allData.filter(d => d.date >= start && d.date <= end);
+      if (filtered.length === 0) return showError('אין מידע על טווח התאריכים המוגדר');
+      drawChart(filtered); document.getElementById('error-message').style.display = 'none';
+    }
+
+    function resetChart() {
+      document.getElementById('start-date').value = '';
+      document.getElementById('end-date').value = '';
+      document.getElementById('error-message').style.display = 'none';
+      drawChart(allData);
+    }
+
+    window.addEventListener('load', function() {
+      loadData(); initPortfolioDetails();
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('end-date').value = today;
+      document.getElementById('start-date').value = '2025-05-19';
+      setInterval(loadData, 900000);
+    });
+  </script>
+</body>
+</html>
