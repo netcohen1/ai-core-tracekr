@@ -1,4 +1,4 @@
- import yfinance as yf
+import yfinance as yf
 import pandas as pd
 from datetime import date, datetime, timedelta
 import json
@@ -29,17 +29,15 @@ def fetch_and_calculate():
     """משיכת נתונים וחישוב ביצועים"""
     try:
         print("🔄 משיכת נתוני שוק...")
-        
         end_date = date.today().strftime('%Y-%m-%d')
         all_tickers = list(PORTFOLIO_WEIGHTS.keys()) + [BENCHMARK_TICKER]
         
         # משיכת נתונים
         data = yf.download(all_tickers, start=START_DATE, end=end_date)["Adj Close"]
-        
         if data.empty:
             print("❌ לא נמצאו נתונים")
             return None
-            
+
         # חישוב ערך התיק
         portfolio_value = sum(data[ticker] * weight for ticker, weight in PORTFOLIO_WEIGHTS.items())
         
@@ -57,7 +55,6 @@ def fetch_and_calculate():
         # שמירת קובץ CSV
         if not os.path.exists('static'):
             os.makedirs('static')
-            
         output.to_csv("static/performance_data.csv", index=False)
         
         print(f"✅ S&P 500: {spy_return:.2f}%")
@@ -69,7 +66,6 @@ def fetch_and_calculate():
             'portfolio_return': portfolio_return,
             'difference': portfolio_return - spy_return
         }
-        
     except Exception as e:
         print(f"❌ שגיאה: {e}")
         return None
@@ -108,4 +104,3 @@ if __name__ == "__main__":
     # הפעלת השרת
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-```
