@@ -1,5 +1,4 @@
-import yfinance as yf
-import pandas as pd
+ import pandas as pd
 from datetime import date, datetime, timedelta
 import json
 import os
@@ -9,12 +8,14 @@ import time
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import tempfile
 
 app = Flask(__name__)
 
 # תאריך התחלה קבוע
 START_DATE = "2025-05-19"
+
+# Alpha Vantage API Key (חינמי)
+ALPHA_VANTAGE_API_KEY = "O8D8K5YZYU12CC40"  # החלף ב-API key שלך
 
 # משקלי התיק (באחוזים)
 PORTFOLIO_WEIGHTS = {
@@ -29,59 +30,143 @@ PORTFOLIO_WEIGHTS = {
 
 BENCHMARK_TICKER = 'SPY'
 
-def setup_session():
-    """הגדרת session עם retry ו-headers מתאימים"""
-    session = requests.Session()
-    
-    # הגדרת retry strategy
-    retry_strategy = Retry(
-        total=5,
-        backoff_factor=2,
-        status_forcelist=[429, 500, 502, 503, 504],
-    )
-    
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    
-    # הגדרת headers
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    })
-    
-    return session
-
-def fetch_ticker_data(ticker, start_date, end_date, max_retries=5):
-    """משיכת נתונים עבור ticker בודד עם retry logic משופר"""
-    for attempt in range(max_retries):
-        try:
-            print(f"🔄 נסיון {attempt + 1} למשיכת {ticker}")
+def fetch_alpha_vantage_data(symbol, start_date, end_date):
+    """משיכת נתונים מ-Alpha Vantage"""
+    try:
+        url = f"https://www.alphavantage.co/query"
+        params = {
+            'function': 'TIME_SERIES_DAILY',
+            'symbol': symbol,
+            'apikey': ALPHA_VANTAGE_API_KEY,
+            'outputsize': 'full',
+            'datatype': 'json'
+        }
+        
+        print(f"🔄 משיכת {symbol} מ-Alpha Vantage...")
+        response = requests.get(url, params=params, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"❌ שגיאת HTTP {response.status_code} עבור {symbol}")
+            return None
             
-            # המתנה בין נסיונות
-            if attempt > 0:
-                time.sleep(min(2 ** attempt, 10))  # עד 10 שניות מקסימום
+        data = response.json()
+        
+        if 'Error Message' in data:
+            print(f"❌ שגיאה מ-Alpha Vantage עבור {symbol}: {data['Error Message']}")
+            return None
             
-            # יצירת Ticker object עם session מותאם
-            session = setup_session()
-            ticker_obj = yf.Ticker(ticker, session=session)
+        if 'Note' in data:
+            print(f"⚠️ הגבלת קצב עבור {symbol}: {data['Note']}")
+            return None
             
-            # משיכת נתונים עם timeout
-            hist = ticker_obj.history(
-                start=start_date, 
-                end=end_date, 
-                auto_adjust=True,
-                timeout=30
-            )
+        if 'Time Series (Daily)' not in data:
+            print(f"❌ אין נתונים עבור {symbol}")
+            return None
             
-            if not hist.empty and 'Close' in hist.columns and len(hist) > 0:
-                print(f"✅ הצלחה: {ticker} - {len(hist)} נקודות נתונים")
-                return hist['Close']
-            else:
-                print(f"⚠️ נתונים ריקים עבור {ticker}")
+        time_series = data['Time Series (Daily)']
+        
+        # המרה ל-DataFrame
+        df_data = []
+        for date_str, values in time_series.items():
+            try:
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+                if start_date <= date_obj <= end_date:
+                    df_data.append({
+                        'Date': date_obj,
+                        'Close': float(values['4. close'])
+                    })
+            except (ValueError, KeyError) as e:
+                continue
                 
-        except Exception as e:
-            print(f"❌ שגיאה עבור {ticker} (נסיון {attempt + 1}): {str(e)}")
+        if not df_data:
+            print(f"❌ אין נתונים בטווח התאריכים עבור {symbol}")
+            return None
             
+        df = pd.DataFrame(df_data)
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        
+        print(f"✅ {symbol}: {len(df)} נקודות נתונים")
+        return df['Close']
+        
+    except Exception as e:
+        print(f"❌ שגיאה במשיכת {symbol}: {str(e)}")
+        return None
+
+def fetch_polygon_data(symbol, start_date, end_date):
+    """משיכת נתונים מ-Polygon.io (גיבוי)"""
+    try:
+        # Polygon.io מציע API חינמי מוגבל
+        url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}"
+        params = {
+            'apikey': 'demo'  # החלף ב-API key שלך
+        }
+        
+        print(f"🔄 משיכת {symbol} מ-Polygon...")
+        response = requests.get(url, params=params, timeout=30)
+        
+        if response.status_code != 200:
+            return None
+            
+        data = response.json()
+        
+        if 'results' not in data or not data['results']:
+            return None
+            
+        df_data = []
+        for result in data['results']:
+            date_obj = datetime.fromtimestamp(result['t'] / 1000).date()
+            df_data.append({
+                'Date': date_obj,
+                'Close': result['c']
+            })
+            
+        df = pd.DataFrame(df_data)
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        
+        print(f"✅ {symbol} (Polygon): {len(df)} נקודות נתונים")
+        return df['Close']
+        
+    except Exception as e:
+        print(f"❌ שגיאה ב-Polygon עבור {symbol}: {str(e)}")
+        return None
+
+def fetch_ticker_data(ticker, start_date, end_date):
+    """משיכת נתונים עם מספר מקורות גיבוי"""
+    start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+    end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+    
+    # נסיון ראשון: Alpha Vantage
+    data = fetch_alpha_vantage_data(ticker, start_date_obj, end_date_obj)
+    if data is not None:
+        return data
+    
+    # נסיון שני: Polygon.io
+    time.sleep(1)  # המתנה קצרה בין ספקים
+    data = fetch_polygon_data(ticker, start_date, end_date)
+    if data is not None:
+        return data
+    
+    # נסיון שלישי: Yahoo Finance עם User-Agent מתקדם
+    try:
+        import yfinance as yf
+        
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        
+        ticker_obj = yf.Ticker(ticker, session=session)
+        hist = ticker_obj.history(start=start_date, end=end_date, auto_adjust=True)
+        
+        if not hist.empty and 'Close' in hist.columns:
+            print(f"✅ {ticker} (Yahoo גיבוי): {len(hist)} נקודות נתונים")
+            return hist['Close']
+            
+    except Exception as e:
+        print(f"❌ גם Yahoo נכשל עבור {ticker}: {str(e)}")
+    
     return None
 
 def fetch_and_calculate():
@@ -118,6 +203,7 @@ def fetch_and_calculate():
             if data is not None:
                 all_data[ticker] = data
                 successful_tickers.append(ticker)
+                time.sleep(0.5)  # המתנה קצרה בין בקשות
             else:
                 failed_tickers.append(ticker)
                 print(f"⚠️ נכשל: {ticker}")
@@ -165,14 +251,14 @@ def fetch_and_calculate():
             "SPY": df[BENCHMARK_TICKER].values
         })
         
-        # שמירת קובץ CSV בנתיב החדש
+        # שמירת קובץ CSV
         csv_path = "/tmp/performance_data.csv"
         output.to_csv(csv_path, index=False)
         
         print(f"✅ S&P 500: {spy_return:.2f}%")
         print(f"✅ AI Core: {portfolio_return:.2f}%")
         print(f"✅ הפרש: {portfolio_return - spy_return:.2f}%")
-        print(f"📝 נשמרו {len(output)} נקודות נתונים ב-{csv_path}")
+        print(f"📝 נשמרו {len(output)} נקודות נתונים")
         
         return {
             'spy_return': spy_return,
