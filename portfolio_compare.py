@@ -3,12 +3,13 @@ import pandas as pd
 from datetime import date, datetime, timedelta
 import json
 import os
-from flask import Flask, render_template, jsonify, send_from_directory
+from flask import Flask, render_template, jsonify, send_from_directory, send_file
 import threading
 import time
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import tempfile
 
 app = Flask(__name__)
 
@@ -50,20 +51,29 @@ def setup_session():
     
     return session
 
-def fetch_ticker_data(ticker, start_date, end_date, max_retries=3):
-    """משיכת נתונים עבור ticker בודד עם retry logic"""
+def fetch_ticker_data(ticker, start_date, end_date, max_retries=5):
+    """משיכת נתונים עבור ticker בודד עם retry logic משופר"""
     for attempt in range(max_retries):
         try:
             print(f"🔄 נסיון {attempt + 1} למשיכת {ticker}")
+            
+            # המתנה בין נסיונות
+            if attempt > 0:
+                time.sleep(min(2 ** attempt, 10))  # עד 10 שניות מקסימום
             
             # יצירת Ticker object עם session מותאם
             session = setup_session()
             ticker_obj = yf.Ticker(ticker, session=session)
             
-            # משיכת נתונים
-            hist = ticker_obj.history(start=start_date, end=end_date, auto_adjust=True)
+            # משיכת נתונים עם timeout
+            hist = ticker_obj.history(
+                start=start_date, 
+                end=end_date, 
+                auto_adjust=True,
+                timeout=30
+            )
             
-            if not hist.empty and 'Close' in hist.columns:
+            if not hist.empty and 'Close' in hist.columns and len(hist) > 0:
                 print(f"✅ הצלחה: {ticker} - {len(hist)} נקודות נתונים")
                 return hist['Close']
             else:
@@ -71,8 +81,6 @@ def fetch_ticker_data(ticker, start_date, end_date, max_retries=3):
                 
         except Exception as e:
             print(f"❌ שגיאה עבור {ticker} (נסיון {attempt + 1}): {str(e)}")
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)  # exponential backoff
             
     return None
 
@@ -81,6 +89,11 @@ def fetch_and_calculate():
     try:
         print("🚀 התחלת משיכת נתונים...")
         end_date = date.today().strftime('%Y-%m-%d')
+        
+        # יצירת תיקיית temp
+        temp_dir = "/tmp"
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
         
         # משיכת נתונים עבור כל ticker בנפרד
         all_data = {}
@@ -152,16 +165,14 @@ def fetch_and_calculate():
             "SPY": df[BENCHMARK_TICKER].values
         })
         
-        # שמירת קובץ CSV
-        if not os.path.exists('static'):
-            os.makedirs('static')
-        
-        output.to_csv("static/performance_data.csv", index=False)
+        # שמירת קובץ CSV בנתיב החדש
+        csv_path = "/tmp/performance_data.csv"
+        output.to_csv(csv_path, index=False)
         
         print(f"✅ S&P 500: {spy_return:.2f}%")
         print(f"✅ AI Core: {portfolio_return:.2f}%")
         print(f"✅ הפרש: {portfolio_return - spy_return:.2f}%")
-        print(f"📝 נשמרו {len(output)} נקודות נתונים")
+        print(f"📝 נשמרו {len(output)} נקודות נתונים ב-{csv_path}")
         
         return {
             'spy_return': spy_return,
@@ -184,8 +195,9 @@ def index():
 
 @app.route('/performance_data.csv')
 def get_csv():
-    if os.path.exists('static/performance_data.csv'):
-        return send_from_directory('static', 'performance_data.csv')
+    csv_path = "/tmp/performance_data.csv"
+    if os.path.exists(csv_path):
+        return send_file(csv_path, as_attachment=False, mimetype='text/csv')
     else:
         return "נתונים לא זמינים", 404
 
@@ -200,10 +212,21 @@ def get_performance():
 @app.route('/api/status')
 def get_status():
     """endpoint לבדיקת סטטוס המערכת"""
-    csv_exists = os.path.exists('static/performance_data.csv')
+    csv_exists = os.path.exists('/tmp/performance_data.csv')
     return jsonify({
         'csv_exists': csv_exists,
         'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/api/debug')
+def debug_info():
+    """endpoint לדיבוג"""
+    import os
+    return jsonify({
+        'working_directory': os.getcwd(),
+        'files_in_tmp': os.listdir('/tmp') if os.path.exists('/tmp') else [],
+        'csv_exists': os.path.exists('/tmp/performance_data.csv'),
+        'csv_size': os.path.getsize('/tmp/performance_data.csv') if os.path.exists('/tmp/performance_data.csv') else 0
     })
 
 def update_data_periodically():
